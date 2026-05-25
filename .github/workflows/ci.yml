@@ -1,0 +1,195 @@
+name: Backend CI/CD — Test, Build, Push ECR, Deploy EC2
+
+on:
+  push:
+    branches: ['**']   # cualquier push a cualquier rama
+
+env:
+  AWS_REGION: us-east-1
+  IMAGE_NAME: alumnos-app
+
+permissions:
+  contents: write   # necesario para crear tags git
+
+jobs:
+
+# ─────────────────────────────────────────────────────────────────────────────
+# JOB 1: BUILD & TEST — Compilación de pruebas y generación de cobertura JaCoCo
+# ─────────────────────────────────────────────────────────────────────────────
+  build-and-test:
+    name: Build & Test (Maven + JaCoCo)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven   # Caché de Maven para agilizar descargas de dependencias
+
+      # Ejecuta pruebas unitarias y verificación de JaCoCo.
+      # NOTA: En tu pom.xml la cobertura requerida está al 100% (<jacoco.minimum.coverage>1.00</jacoco.minimum.coverage>).
+      # Si tus pruebas no cubren el 100%, este paso fallará.
+      - name: Compilar y ejecutar pruebas con Maven
+        run: mvn clean verify
+
+      - name: Subir reporte de cobertura (JaCoCo)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: jacoco-coverage-report
+          path: |
+            target/site/jacoco/
+            target/site/jacoco/jacoco.xml
+          retention-days: 7
+
+      - name: Subir resultados de pruebas JUnit
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: target/surefire-reports/
+          retention-days: 7
+
+# ─────────────────────────────────────────────────────────────────────────────
+# JOB 2: SECURITY — SonarCloud + Snyk
+# ─────────────────────────────────────────────────────────────────────────────
+  security:
+    name: Security Analysis (SonarCloud & Snyk)
+    runs-on: ubuntu-latest
+    needs: build-and-test
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Descargar reporte de cobertura (JaCoCo)
+        uses: actions/download-artifact@v4
+        with:
+          name: jacoco-coverage-report
+          path: target/site/jacoco
+        continue-on-error: true
+
+      # Ejecuta análisis estático con SonarCloud para Maven
+      - name: Analizar con SonarCloud
+        run: |
+          mvn sonar:sonar \
+            -Dsonar.token=${{ secrets.SONAR_TOKEN }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Instalar Snyk CLI
+        run: npm install -g snyk@latest
+
+      # Ejecuta Snyk para proyectos Maven (se omitió configuración exclusiva de Gradle)
+      - name: Snyk SCA (Análisis de vulnerabilidades)
+        run: |
+          snyk test \
+            --severity-threshold=high \
+            --fail-on=all
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+
+      - name: Snyk SARIF
+        if: always()
+        run: |
+          snyk test \
+            --severity-threshold=high \
+            --sarif-file-output=snyk.sarif || true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: snyk-security-report
+          path: snyk.sarif
+          retention-days: 7
+
+# ─────────────────────────────────────────────────────────────────────────────
+# JOB 3: VERSIONING — calcula v1.x.0 y crea el tag git
+# ─────────────────────────────────────────────────────────────────────────────
+  versioning:
+    name: Semantic Version (v1.x.0)
+    runs-on: ubuntu-latest
+    needs: security
+    outputs:
+      new_tag: ${{ steps.calc.outputs.new_tag }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Calcular y crear tag
+        id: calc
+        run: |
+          LAST=$(git tag --list 'v1.*' --sort=-v:refname | head -1)
+          if [ -z "$LAST" ]; then
+            NEW="v1.0.0"
+          else
+            MINOR=$(echo $LAST | cut -d. -f2)
+            NEW="v1.$((MINOR + 1)).0"
+          fi
+          echo "Último: ${LAST:-ninguno} → Nuevo: $NEW"
+          echo "new_tag=$NEW" >> $GITHUB_OUTPUT
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag $NEW
+          git push origin $NEW
+
+# ─────────────────────────────────────────────────────────────────────────────
+# JOB 4: BUILD & PUSH ECR
+# Construye la imagen usando el Dockerfile multi-stage y la sube a ECR.
+# NOTA: No hace falta compilar previamente en el runner, el Dockerfile ya compila.
+# ─────────────────────────────────────────────────────────────────────────────
+  build-push-ecr:
+    name: Build & Push ECR (${{ needs.versioning.outputs.new_tag }})
+    runs-on: ubuntu-latest
+    needs: versioning
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build y push imagen (Compila en Docker mediante Maven)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.IMAGE_NAME }}:${{ needs.versioning.outputs.new_tag }}
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.IMAGE_NAME }}:latest
+          cache-from: type=gha
+          cache-to:   type=gha,mode=max
+
+      - name: Resumen
+        run: |
+          echo "### Imagen de App publicada en ECR" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tag:** \`${{ needs.versioning.outputs.new_tag }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Registry:** \`${{ steps.login-ecr.outputs.registry }}\`" >> $GITHUB_STEP_SUMMARY
+
