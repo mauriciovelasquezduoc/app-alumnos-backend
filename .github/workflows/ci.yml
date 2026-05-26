@@ -224,7 +224,7 @@ jobs:
         run: |
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
           kubectl set image deployment/app-alumnos-backend \
-          backend="$ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/${{ env.IMAGE_NAME }}:latest" \
+          backend="$ACCOUNT_ID.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ env.IMAGE_NAME }}:latest" \
           -n app-alumnos
 
       - name: Verify rollout
