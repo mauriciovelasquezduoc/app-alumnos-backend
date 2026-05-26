@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-alumnos-backend
+  namespace: app-alumnos
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: app-alumnos-backend
+  template:
+    metadata:
+      labels:
+        app: app-alumnos-backend
+    spec:
+      containers:
+        - name: backend
+          image: 919889862541.dkr.ecr.us-east-1.amazonaws.com/app-alumnos-backend:eks-v1 # Colocar uri de tu imagen en ECR
+          ports:
+            - containerPort: 3001
+          env:
+            - name: DB_HOST
+              value: "app-alumnos-db"
+            - name: DB_USER
+              value: "root"
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: MYSQL_ROOT_PASSWORD
+            - name: DB_NAME
+              value: "app-alumnos_perritos"
+            - name: DB_PORT
+              value: "3306"
+
+          # Se agrega Resource para que Metrics Server calcule el % de CPU y Memoria para escalar 
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+
+          # HEALTH CHECKS (PROBES)
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3001
+            initialDelaySeconds: 5
+            periodSeconds: 5
+
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 3001
+            initialDelaySeconds: 10
+            periodSeconds: 10
