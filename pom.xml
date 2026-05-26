@@ -28,6 +28,7 @@
         <jacoco.minimum.coverage>1.00</jacoco.minimum.coverage>
         <!-- SonarCloud -->
         <sonar.host.url>https://sonarcloud.io</sonar.host.url>
+        <sonar.organization>mauriciovelasquezduoc</sonar.organization>
         <sonar.coverage.jacoco.xmlReportPaths>
             ${project.reporting.outputDirectory}/jacoco/jacoco.xml
         </sonar.coverage.jacoco.xmlReportPaths>
