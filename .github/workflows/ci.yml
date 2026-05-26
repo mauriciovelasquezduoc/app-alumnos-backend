@@ -81,6 +81,9 @@ jobs:
           path: target/site/jacoco
         continue-on-error: true
 
+      - name: Compilar clases (necesario para SonarCloud)
+        run: mvn compile -DskipTests
+
       # Ejecuta análisis estático con SonarCloud para Maven
       - name: Analizar con SonarCloud
         run: |
