@@ -5,6 +5,13 @@ metadata:
   namespace: app-alumnos
 spec:
   replicas: 2
+  progressDeadlineSeconds: 600
+  minReadySeconds: 30
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
   selector:
     matchLabels:
       app: app-alumnos-backend
@@ -15,7 +22,8 @@ spec:
     spec:
       containers:
         - name: backend
-          image: 919889862541.dkr.ecr.us-east-1.amazonaws.com/app-alumnos-backend:eks-v1 # Colocar uri de tu imagen en ECR
+          image: 919889862541.dkr.ecr.us-east-1.amazonaws.com/app-alumnos-backend:latest
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
           env:
@@ -41,7 +49,6 @@ spec:
                   name: app-alumnos-db-secret
                   key: MYSQL_PASSWORD
 
-          # Se agrega Resource para que Metrics Server calcule el % de CPU y Memoria para escalar 
           resources:
             requests:
               cpu: "100m"
@@ -50,17 +57,20 @@ spec:
               cpu: "500m"
               memory: "512Mi"
 
-          # HEALTH CHECKS (PROBES)
           readinessProbe:
             httpGet:
               path: /api/alumnos
               port: 8080
-            initialDelaySeconds: 5
-            periodSeconds: 5
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            failureThreshold: 3
+            timeoutSeconds: 5
 
           livenessProbe:
             httpGet:
               path: /api/alumnos
               port: 8080
-            initialDelaySeconds: 10
-            periodSeconds: 10
+            initialDelaySeconds: 90
+            periodSeconds: 15
+            failureThreshold: 3
+            timeoutSeconds: 5
