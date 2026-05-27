@@ -228,8 +228,16 @@ jobs:
       - name: Configure kubeconfig
         run: |
           aws eks update-kubeconfig \
-            --region us-east-1 \
-            --name laboratorio-eks
+            --region ${{ env.AWS_REGION }} \
+            --name ${{ secrets.EKS_CLUSTER_NAME }}
+
+  # ---------------------------------------------------------
+  # Apply Kubernetes manifests
+  # ---------------------------------------------------------
+
+      - name: Apply Kubernetes manifests
+        run: |
+          kubectl apply -f k8s/ -n app-alumnos
 
   # ---------------------------------------------------------
   # Update backend image
@@ -240,7 +248,7 @@ jobs:
 
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 
-          IMAGE="$ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/${{ env.IMAGE_NAME }}:latest"
+          IMAGE="$ACCOUNT_ID.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.IMAGE_NAME }}:latest"
 
           echo "IMAGE=$IMAGE"
 

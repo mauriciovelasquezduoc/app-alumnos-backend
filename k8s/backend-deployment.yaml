@@ -17,21 +17,29 @@ spec:
         - name: backend
           image: 919889862541.dkr.ecr.us-east-1.amazonaws.com/app-alumnos-backend:eks-v1 # Colocar uri de tu imagen en ECR
           ports:
-            - containerPort: 3001
+            - containerPort: 8080
           env:
             - name: DB_HOST
-              value: "app-alumnos-db"
-            - name: DB_USER
-              value: "root"
-            - name: DB_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: mysql-secret
-                  key: MYSQL_ROOT_PASSWORD
-            - name: DB_NAME
-              value: "app-alumnos_perritos"
+              value: "app-alumnos-db-service"
             - name: DB_PORT
               value: "3306"
+            - name: DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: app-alumnos-db-secret
+                  key: MYSQL_DATABASE
+            - name: SPRING_DATASOURCE_URL
+              value: "jdbc:mysql://$(DB_HOST):$(DB_PORT)/$(DB_NAME)?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC"
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: app-alumnos-db-secret
+                  key: MYSQL_USER
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: app-alumnos-db-secret
+                  key: MYSQL_PASSWORD
 
           # Se agrega Resource para que Metrics Server calcule el % de CPU y Memoria para escalar 
           resources:
@@ -45,14 +53,14 @@ spec:
           # HEALTH CHECKS (PROBES)
           readinessProbe:
             httpGet:
-              path: /api/health
-              port: 3001
+              path: /api/alumnos
+              port: 8080
             initialDelaySeconds: 5
             periodSeconds: 5
 
           livenessProbe:
             httpGet:
-              path: /api/health
-              port: 3001
+              path: /api/alumnos
+              port: 8080
             initialDelaySeconds: 10
             periodSeconds: 10
